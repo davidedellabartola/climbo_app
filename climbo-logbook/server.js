@@ -424,6 +424,20 @@ app.get('/api/stats', wrap(async (req, res) => {
   });
 }));
 
+/* ---------- Classifica generale ---------- */
+app.get('/api/leaderboard', wrap(async (req, res) => {
+  const creators = (await pool.query(`
+    SELECT u.id, u.username, count(*)::int AS n
+    FROM boulders b JOIN users u ON u.id = b.user_id
+    GROUP BY u.id ORDER BY n DESC, u.username ASC LIMIT 15`)).rows;
+  const senders = (await pool.query(`
+    SELECT u.id, u.username, count(*)::int AS n
+    FROM logs l JOIN sessions s ON s.id = l.session_id JOIN users u ON u.id = s.user_id
+    WHERE l.style IN ('flash','top')
+    GROUP BY u.id ORDER BY n DESC, u.username ASC LIMIT 15`)).rows;
+  res.json({ creators, senders });
+}));
+
 /* ---------- Contest (challenge + ricompensa) ---------- */
 app.get('/api/contests', wrap(async (req, res) => {
   res.json((await pool.query(`

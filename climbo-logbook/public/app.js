@@ -367,8 +367,15 @@ async function openContestSheet(id) {
 }
 
 /* ===================== STATISTICHE ===================== */
+let STATS = { tab: 'me' };
+let SDATA = null;
 async function viewStats() {
-  const s = await api('/stats');
+  SDATA = await Promise.all([api('/stats'), api('/leaderboard')]);
+  renderStats();
+}
+
+function renderStats() {
+  const [s, lb] = SDATA;
   const kpi = (v, l) => `<div class="card p-5"><div style="font-size:38px;font-weight:700;letter-spacing:-.04em;line-height:1">${v}</div><div class="sub text-sm mt-2">${l}</div></div>`;
   const pyramid = (rows, max) => rows.map(r => {
     const n = r.flash + r.top;
@@ -382,7 +389,7 @@ async function viewStats() {
   const font = used.filter(r => !GCOL[r.grade]).reverse(), colors = used.filter(r => GCOL[r.grade]).reverse();
   const block = (t, rows) => rows.length ? `<h2 class="text-2xl font-bold mt-8 mb-3" style="letter-spacing:-.025em">${t}</h2><div class="card p-4">${pyramid(rows, max)}</div>` : '';
 
-  $('#app').innerHTML = head('Statistiche') + `
+  const personal = `
   <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
     ${kpi(s.sessions, 'sessioni')}${kpi(s.sends, 'blocchi chiusi')}${kpi(s.flashRate + '%', 'flash sui blocchi provati')}
     ${kpi(s.hardest ? (GCOL[s.hardest] ? cap(s.hardest) : s.hardest) : '–', 'grado massimo chiuso')}
@@ -390,6 +397,32 @@ async function viewStats() {
   <p class="sub text-sm mt-5"><span style="color:var(--green)">●</span> Flash &nbsp; <span style="color:var(--orange)">●</span> Top / lavorato &nbsp; <span>+n = tentativi falliti</span></p>
   ${block('Piramide gradi Font', font)}${block('Piramide colori', colors)}
   ${used.length ? '' : '<div class="card p-8 text-center sub mt-6">Registra qualche blocco in una sessione per vedere la tua piramide.</div>'}`;
+
+  const MEDALS = ['🥇', '🥈', '🥉'];
+  const lbRow = (r, i) => `
+    <li class="sep flex items-center gap-3 py-2.5 ${r.id === ME?.id ? 'font-semibold' : ''}">
+      <span class="w-7 text-center sub text-sm">${MEDALS[i] || (i + 1)}</span>
+      <span class="flex-1 truncate">@${esc(r.username || '?')}${r.id === ME?.id ? ' <span class="sub text-xs font-normal">(tu)</span>' : ''}</span>
+      <span class="chip ${r.id === ME?.id ? 'top' : 'fail'}">${plural(r.n, 'blocco', 'blocchi')}</span>
+    </li>`;
+  const board = (title, rows, empty) => `
+    <section class="card p-5">
+      <h2 class="font-bold">${title}</h2>
+      <ul class="mt-2">${rows.map(lbRow).join('') || `<li class="sep py-3 sub text-sm">${empty}</li>`}</ul>
+    </section>`;
+  const leaderboard = `
+  <div class="grid md:grid-cols-2 gap-4">
+    ${board('🧗 Blocchi creati', lb.creators, 'Nessuna via creata. Vai su <a class="link" href="#tracer">Traccia</a> per tracciarne una.')}
+    ${board('🏁 Blocchi chiusi', lb.senders, 'Nessun blocco chiuso. Flash e top registrati nelle sessioni valgono per la classifica.')}
+  </div>
+  <p class="sub text-xs mt-3 px-1">La classifica considera i blocchi con foto personale come creazioni dell'autore registrato. Flash e top valgono entrambi come "chiuso".</p>`;
+
+  $('#app').innerHTML = head('Statistiche') + `
+  <div class="seg mb-6" role="group" aria-label="Tipo di statistiche">
+    <button data-stab="me" class="${STATS.tab === 'me' ? 'on' : ''}">Personali</button>
+    <button data-stab="board" class="${STATS.tab === 'board' ? 'on' : ''}">Classifica</button>
+  </div>
+  ${STATS.tab === 'me' ? personal : leaderboard}`;
 }
 
 /* ===================== EVENTI ===================== */
@@ -412,6 +445,11 @@ document.addEventListener('click', async e => {
       VIE.status = d.dataset.vstatus;
       document.querySelectorAll('[data-vstatus]').forEach(b => b.classList.toggle('on', b.dataset.vstatus === VIE.status));
       return renderVie();
+    }
+    if (d.dataset.stab) {
+      STATS.tab = d.dataset.stab;
+      document.querySelectorAll('[data-stab]').forEach(b => b.classList.toggle('on', b.dataset.stab === STATS.tab));
+      return renderStats();
     }
     if (d.hasAttribute('data-logout')) {
       await send('/auth/logout', {});
