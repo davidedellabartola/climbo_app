@@ -14,6 +14,7 @@ const api = async (url, opt = {}) => {
   return d;
 };
 const send = (url, body) => api(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+const put = (url, body) => api(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 const del = url => api(url, { method: 'DELETE' });
 
 let toastTimer;
@@ -31,11 +32,11 @@ const GCOL = { bianco: '#f5f5f7', verde: '#30d158', blu: '#0a84ff', giallo: '#ff
 const TRASH = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>';
 
 let META = { font: [], colors: [], registration: false };
-let ME = null;                                 // utente connesso
-let OPEN = null;                               // sessione con il form "aggiungi blocco" aperto
-let PREV = 'tracer';                           // ultima scheda principale visitata (per il link "indietro")
-const TABS = { sessions: 'Sessioni', tracer: 'Traccia', vie: 'Le tue vie', stats: 'Statistiche' };
-const T = { wallId: null, tool: 'start', holds: [], mode: 'wall', photo: null, photoUrl: null, wall: null }; // mode: 'wall' = foto parete, 'own' = foto della singola via // stato del tracciatore
+let ME = null;
+let OPEN = null;
+let PREV = 'tracer';
+const TABS = { sessions: 'Sessioni', tracer: 'Traccia', vie: 'Le tue vie', stats: 'Statistiche', contest: 'Contest' };
+const T = { wallId: null, tool: 'start', holds: [], mode: 'wall', photo: null, photoUrl: null, wall: null };
 
 const grade = g => GCOL[g] ? `<span class="grade"><i style="background:${GCOL[g]}"></i>${cap(g)}</span>` : `<span class="grade">${esc(g)}</span>`;
 const gradeOpts = (sel = '') =>
@@ -44,8 +45,9 @@ const gradeOpts = (sel = '') =>
    <optgroup label="Colori palestra">${META.colors.map(g => `<option value="${g}" ${g === sel ? 'selected' : ''}>${cap(g)}</option>`).join('')}</optgroup>`;
 const attemptOpts = Array.from({ length: 30 }, (_, i) => `<option value="${i + 1}">${plural(i + 1, 'tentativo', 'tentativi')}</option>`).join('');
 const head = (title, right = '') => `<div class="flex items-end justify-between gap-3 mb-5"><h1 class="title">${title}</h1>${right}</div>`;
+const canManage = () => !!ME?.isAdmin;
+const canEditBoulder = b => !!ME && (ME.isAdmin || b.author_id === ME.id);
 
-/* Marker posizionati in % → restano sulle prese giuste a qualsiasi dimensione schermo */
 const markers = holds => holds.map((h, i) =>
   `<span class="marker" data-i="${i}" style="left:${h.x}%;top:${h.y}%;border-color:${HEX[h.type]};background:${HEX[h.type]}55"></span>`).join('');
 
@@ -54,7 +56,8 @@ const boulderCard = (b, withWall = false) => `
     <div class="thumb relative"><img src="${esc(b.image_url)}" alt="" class="block w-full h-auto"><div class="absolute inset-0">${markers(b.holds)}</div></div>
     <div class="p-3"><div class="flex items-center gap-2">${grade(b.grade)}<span class="flex-1 truncate text-sm font-medium">${esc(b.name)}</span></div>
       <div class="flex items-center gap-2 mt-2"><span class="chip ${b.best || 'fail'}">${b.best ? STYLE[b.best] : 'Da fare'}</span>
-        ${withWall ? `<span class="sub text-xs truncate">${esc(b.wall_name)}</span>` : ''}</div></div></a>`;
+        <span class="sub text-xs truncate">@${esc(b.author || 'anonimo')}</span>
+        ${withWall ? `<span class="sub text-xs truncate">· ${esc(b.wall_name)}</span>` : ''}</div></div></a>`;
 
 /* ===================== SESSIONI ===================== */
 async function viewSessions() {
@@ -86,7 +89,7 @@ async function viewSessions() {
       <form data-log="${s.id}" class="grid gap-2 mt-3">
         <select name="boulder_id" class="field" aria-label="Blocco">
           <option value="">Blocco libero</option>
-          ${boulders.map(b => `<option value="${b.id}" data-grade="${b.grade}">${esc(b.name)} (${GCOL[b.grade] ? cap(b.grade) : b.grade})</option>`).join('')}
+          ${boulders.map(b => `<option value="${b.id}" data-grade="${b.grade}">${esc(b.name)} · @${esc(b.author || 'anonimo')} (${GCOL[b.grade] ? cap(b.grade) : b.grade})</option>`).join('')}
         </select>
         <div data-freename><input name="name" class="field" placeholder="Nome della via (facoltativo)" maxlength="80" aria-label="Nome della via"></div>
         <select name="grade" class="field" aria-label="Grado">${gradeOpts()}</select>
@@ -118,16 +121,21 @@ async function viewTracer() {
   const [walls, boulders] = await Promise.all([api('/walls'), api('/boulders')]);
   if (!walls.find(w => w.id === T.wallId)) { T.wallId = walls[0]?.id; T.holds = []; }
   const wall = walls.find(w => w.id === T.wallId);
-  const mine = boulders.filter(b => b.wall_id === T.wallId); // vie create su questa parete
+  const mine = boulders.filter(b => b.wall_id === T.wallId);
 
   $('#app').innerHTML = head('Traccia') + `
   <div class="grid lg:grid-cols-[1fr_330px] gap-5">
     <section class="grid gap-3 content-start">
-      <div class="flex gap-2">
-        <select id="wallSel" class="field" aria-label="Parete">${walls.map(w => `<option value="${w.id}" ${w.id === T.wallId ? 'selected' : ''}>${esc(w.name)}</option>`).join('')}</select>
-        <button class="btn sec sm whitespace-nowrap" data-new-wall>Carica foto</button>
-        ${wall && wall.image_url.startsWith('/uploads/') ? `<button class="icon" data-del-wall="${wall.id}" data-n-boulders="${mine.length}" aria-label="Elimina parete">${TRASH}</button>` : ''}
+      <div class="flex gap-2 flex-wrap">
+        <select id="wallSel" class="field flex-1 min-w-[160px]" aria-label="Parete">${walls.map(w => `<option value="${w.id}" ${w.id === T.wallId ? 'selected' : ''}>${esc(w.name)}</option>`).join('')}</select>
+        ${canManage()
+          ? `<button class="btn sec sm whitespace-nowrap" data-new-wall>Nuova parete</button>
+             <button class="btn sec sm whitespace-nowrap" data-rephoto-wall="${T.wallId}">Cambia foto</button>`
+          : ''}
+        ${canManage() && wall && wall.image_url.startsWith('/uploads/')
+          ? `<button class="icon" data-del-wall="${wall.id}" aria-label="Elimina parete">${TRASH}</button>` : ''}
       </div>
+      ${canManage() ? '<p class="sub text-xs px-1">Solo admin: puoi caricare la foto della parete e ritracciarla. Le vie con foto personale non vengono cancellate al cambio foto.</p>' : ''}
       <div class="seg" role="group" aria-label="Foto da usare">
         <button data-mode="wall" class="${T.mode === 'wall' ? 'on' : ''}">Parete intera</button>
         <button data-mode="own" class="${T.mode === 'own' ? 'on' : ''}">Foto della via</button>
@@ -143,6 +151,7 @@ async function viewTracer() {
       <select id="bGrade" class="field" aria-label="Grado stimato">${gradeOpts()}</select>
       <div class="flex gap-2"><button id="undo" class="btn sec sm flex-1">Annulla ultima</button><button id="clear" class="btn sec sm flex-1">Svuota</button></div>
       <button id="save" class="btn">Salva blocco</button>
+      <p class="sub text-xs">La via sarà pubblica e visibile a tutti con il tuo username.</p>
     </aside>
   </div>
   <h2 class="text-2xl font-bold mt-10 mb-4" style="letter-spacing:-.025em">Vie su ${wall ? esc(wall.name) : 'questa parete'} <span class="sub font-medium text-lg">${mine.length}</span></h2>
@@ -153,7 +162,6 @@ async function viewTracer() {
   T.wall = wall; drawStage();
 }
 
-/* Mostra la foto della parete oppure quella dedicata alla singola via (più vicina = prese più grandi) */
 function drawStage() {
   const own = T.mode === 'own', src = own ? T.photoUrl : T.wall?.image_url;
   $('#stageWrap').innerHTML = src
@@ -167,7 +175,6 @@ function drawStage() {
   drawMarkers();
 }
 
-/* Riduce le foto del telefono (max 2000 px) per un upload più rapido; le percentuali dei marker restano valide */
 async function shrink(file, max = 2000) {
   try {
     const bmp = await createImageBitmap(file);
@@ -187,7 +194,6 @@ function drawMarkers() {
   $('#count').textContent = `${c('start')} start · ${c('mid')} intermedie · ${c('top')} top`;
 }
 
-/* Il click viene convertito in % rispetto al riquadro della foto: coordinate indipendenti dalla dimensione dello schermo */
 function handleStageClick(e) {
   const stage = e.target.closest('#stage');
   const m = e.target.closest('.marker');
@@ -215,10 +221,19 @@ async function saveBoulder() {
 
 const newWallSheet = () => sheet(`
   <form data-wall class="grid gap-3">
-    <h2 class="text-xl font-bold">Carica una foto</h2>
+    <h2 class="text-xl font-bold">Nuova parete</h2>
+    <p class="sub text-sm">Operazione riservata all'admin.</p>
     <input name="image" type="file" accept="image/jpeg,image/png,image/webp" required class="field" aria-label="Foto della parete">
     <input name="name" placeholder="Nome della parete o settore" class="field" maxlength="80" aria-label="Nome parete">
     <div class="flex gap-2 mt-1"><button type="button" class="btn sec flex-1" data-close>Annulla</button><button class="btn flex-1">Carica</button></div>
+  </form>`);
+
+const rephotoSheet = wallId => sheet(`
+  <form data-rephoto="${wallId}" class="grid gap-3">
+    <h2 class="text-xl font-bold">Cambia foto della parete</h2>
+    <p class="sub text-sm">Le vie tracciate direttamente sulla parete verranno <strong>eliminate</strong>. Le vie con foto personale restano.</p>
+    <input name="image" type="file" accept="image/jpeg,image/png,image/webp" required class="field" aria-label="Nuova foto parete">
+    <div class="flex gap-2 mt-1"><button type="button" class="btn sec flex-1" data-close>Annulla</button><button class="btn danger flex-1">Sostituisci</button></div>
   </form>`);
 
 /* ===================== LE TUE VIE ===================== */
@@ -229,9 +244,9 @@ async function viewVie() {
   const walls = [...new Map(ALLVIE.map(b => [String(b.wall_id), b.wall_name]))];
   if (!walls.some(([id]) => id === VIE.wall)) VIE.wall = '';
   const sel = (v, cur) => (v === cur ? 'selected' : '');
-  $('#app').innerHTML = head('Le tue vie', '<span id="vieCount" class="sub pb-1"></span>') + `
+  $('#app').innerHTML = head('Tutte le vie', '<span id="vieCount" class="sub pb-1"></span>') + `
   <div class="grid gap-3 mb-5">
-    <input id="vq" type="search" class="field" placeholder="Cerca una via" value="${esc(VIE.q)}" aria-label="Cerca una via">
+    <input id="vq" type="search" class="field" placeholder="Cerca una via o un autore" value="${esc(VIE.q)}" aria-label="Cerca una via">
     <div class="grid grid-cols-2 gap-2">
       <select id="vwall" class="field" aria-label="Parete"><option value="">Tutte le pareti</option>
         ${walls.map(([id, n]) => `<option value="${id}" ${sel(id, VIE.wall)}>${esc(n)}</option>`).join('')}</select>
@@ -240,7 +255,7 @@ async function viewVie() {
         <optgroup label="Colori palestra">${META.colors.map(g => `<option value="${g}" ${sel(g, VIE.grade)}>${cap(g)}</option>`).join('')}</optgroup></select>
     </div>
     <div class="seg" role="group" aria-label="Stato">
-      ${[['all', 'Tutte'], ['todo', 'Da fare'], ['done', 'Chiuse']].map(([k, l]) => `<button data-vstatus="${k}" class="${VIE.status === k ? 'on' : ''}">${l}</button>`).join('')}
+      ${[['all', 'Tutte'], ['todo', 'Da fare'], ['done', 'Chiuse'], ['mine', 'Mie']].map(([k, l]) => `<button data-vstatus="${k}" class="${VIE.status === k ? 'on' : ''}">${l}</button>`).join('')}
     </div>
   </div>
   <div id="vieList" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3"></div>`;
@@ -250,10 +265,13 @@ async function viewVie() {
 function renderVie() {
   const q = VIE.q.trim().toLowerCase();
   const list = ALLVIE.filter(b =>
-    (!q || b.name.toLowerCase().includes(q)) &&
+    (!q || b.name.toLowerCase().includes(q) || (b.author || '').toLowerCase().includes(q)) &&
     (!VIE.wall || String(b.wall_id) === VIE.wall) &&
     (!VIE.grade || b.grade === VIE.grade) &&
-    (VIE.status === 'all' || (VIE.status === 'done' ? ['flash', 'top'].includes(b.best) : !['flash', 'top'].includes(b.best))));
+    (VIE.status === 'all'
+      || (VIE.status === 'done' ? ['flash', 'top'].includes(b.best)
+        : VIE.status === 'mine' ? b.author_id === ME?.id
+        : !['flash', 'top'].includes(b.best))));
   $('#vieCount').textContent = plural(list.length, 'via', 'vie');
   $('#vieList').innerHTML = list.map(b => boulderCard(b, true)).join('') ||
     `<div class="card p-8 text-center sub col-span-full">${ALLVIE.length
@@ -264,6 +282,7 @@ function renderVie() {
 /* ===================== DETTAGLIO BLOCCO ===================== */
 async function viewBoulder(id) {
   const b = await api('/boulders/' + id);
+  const editable = canEditBoulder(b);
   $('#app').innerHTML = `
   <a href="#${PREV}" class="link inline-block mb-3">‹ ${TABS[PREV]}</a>
   <div class="grid lg:grid-cols-[1fr_330px] gap-5">
@@ -273,20 +292,78 @@ async function viewBoulder(id) {
     <div class="grid gap-4 content-start">
       <div class="card p-5">
         <h1 class="title" style="font-size:28px">${esc(b.name)}</h1>
-        <div class="flex items-center gap-3 mt-3">${grade(b.grade)}<span class="sub text-sm">${esc(b.wall_name)}</span></div>
+        <div class="flex items-center gap-3 mt-3">${grade(b.grade)}
+          <span class="sub text-sm">${esc(b.wall_name)}</span>
+          <span class="sub text-sm">· @${esc(b.author || 'anonimo')}</span></div>
         <div class="seg mt-4" style="pointer-events:none">${Object.entries(TOOLS).map(([k, l]) =>
           `<button><i style="background:${HEX[k]}"></i>${l} ${b.holds.filter(h => h.type === k).length}</button>`).join('')}</div>
       </div>
       <div class="card p-5">
-        <h2 class="font-bold mb-1">Salite registrate</h2>
+        <h2 class="font-bold mb-1">Le tue salite</h2>
         <ul>${b.logs.map(l => `<li class="sep py-3 flex items-center gap-3">
           <div class="flex-1"><div class="text-sm capitalize">${fmtDate(l.date)}</div><div class="sub text-xs">${esc(l.gym)}</div></div>
           <span class="chip ${l.style}">${STYLE[l.style]}</span><span class="sub text-xs">${plural(l.attempts, 'tentativo', 'tentativi')}</span></li>`).join('')
           || '<li class="sep py-3 sub text-sm">Non l’hai ancora registrato in nessuna sessione.</li>'}</ul>
       </div>
-      <button class="btn sec" style="color:var(--red)" data-del-boulder="${b.id}">Elimina blocco</button>
+      ${editable ? `<button class="btn sec" style="color:var(--red)" data-del-boulder="${b.id}">Elimina via</button>` : ''}
     </div>
   </div>`;
+}
+
+/* ===================== CONTEST ===================== */
+async function viewContest() {
+  const list = await api('/contests');
+  const admin = canManage();
+  const card = c => `
+    <article class="card p-5">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <h2 class="text-xl font-bold">${esc(c.title)}</h2>
+          ${c.reward ? `<p class="mt-2"><span class="chip top">🎁 ${esc(c.reward)}</span></p>` : ''}
+          ${c.description ? `<p class="sub text-sm mt-2 whitespace-pre-line">${esc(c.description)}</p>` : ''}
+          <p class="sub text-xs mt-3">
+            ${c.starts_at ? 'Dal ' + fmtDate(c.starts_at) : 'Sempre'}
+            ${c.ends_at ? ' al ' + fmtDate(c.ends_at) : ''}
+            ${c.active ? '' : ' · <strong>chiusa</strong>'}
+          </p>
+        </div>
+        ${admin ? `<div class="flex gap-1 shrink-0">
+          <button class="icon" data-edit-contest="${c.id}" aria-label="Modifica challenge">✎</button>
+          <button class="icon" data-del-contest="${c.id}" aria-label="Elimina challenge">${TRASH}</button>
+        </div>` : ''}
+      </div>
+    </article>`;
+  $('#app').innerHTML = head('Contest', admin ? '<button class="btn sm" data-new-contest>Nuova challenge</button>' : '') +
+    `<p class="sub text-sm mb-4">Le challenge attive in palestra.${admin ? ' Come admin puoi crearle e gestirle.' : ''}</p>
+     <div class="grid gap-4">${list.map(card).join('') ||
+      '<div class="card p-8 text-center sub">Nessuna challenge attiva.</div>'}</div>`;
+}
+
+let CONTEST_CACHE = [];
+async function openContestSheet(id) {
+  CONTEST_CACHE = await api('/contests');
+  const c = id ? CONTEST_CACHE.find(x => String(x.id) === String(id)) || {} : {};
+  sheet(`
+    <form data-contest="${c.id || ''}" class="grid gap-3">
+      <h2 class="text-xl font-bold">${c.id ? 'Modifica challenge' : 'Nuova challenge'}</h2>
+      <label class="grid gap-1"><span class="sub text-sm">Titolo</span>
+        <input name="title" class="field" placeholder="Es. Boulder del mese" required maxlength="120" value="${esc(c.title || '')}"></label>
+      <label class="grid gap-1"><span class="sub text-sm">Descrizione / regole</span>
+        <textarea name="description" class="field" rows="3" placeholder="Spiega come si partecipa" maxlength="2000">${esc(c.description || '')}</textarea></label>
+      <label class="grid gap-1"><span class="sub text-sm">Ricompensa</span>
+        <input name="reward" class="field" placeholder="Es. magnesite + ingresso gratis" maxlength="200" value="${esc(c.reward || '')}"></label>
+      <div class="grid grid-cols-2 gap-2">
+        <label class="grid gap-1"><span class="sub text-sm">Inizio</span>
+          <input name="starts_at" type="date" class="field" value="${c.starts_at || ''}"></label>
+        <label class="grid gap-1"><span class="sub text-sm">Fine</span>
+          <input name="ends_at" type="date" class="field" value="${c.ends_at || ''}"></label>
+      </div>
+      ${c.id ? `<label class="flex items-center gap-2 text-sm mt-1"><input type="checkbox" name="active" ${c.active ? 'checked' : ''}> Challenge attiva</label>` : ''}
+      <div class="flex gap-2 mt-2">
+        <button type="button" class="btn sec flex-1" data-close>Annulla</button>
+        <button class="btn flex-1">${c.id ? 'Salva' : 'Crea'}</button>
+      </div>
+    </form>`);
 }
 
 /* ===================== STATISTICHE ===================== */
@@ -315,7 +392,7 @@ async function viewStats() {
   ${used.length ? '' : '<div class="card p-8 text-center sub mt-6">Registra qualche blocco in una sessione per vedere la tua piramide.</div>'}`;
 }
 
-/* ===================== EVENTI & ROUTER ===================== */
+/* ===================== EVENTI ===================== */
 document.addEventListener('click', async e => {
   try {
     if (e.target.closest('#stage')) return handleStageClick(e);
@@ -338,20 +415,29 @@ document.addEventListener('click', async e => {
     }
     if (d.hasAttribute('data-logout')) {
       await send('/auth/logout', {});
-      ME = null; OPEN = null; T.wallId = null; T.holds = []; clearPhoto(); T.mode = 'wall'; Object.assign(VIE, { q: '', wall: '', grade: '', status: 'all' }); location.hash = ''; return showAuth();
+      ME = null; OPEN = null; T.wallId = null; T.holds = []; clearPhoto(); T.mode = 'wall';
+      Object.assign(VIE, { q: '', wall: '', grade: '', status: 'all' });
+      location.hash = ''; return showAuth();
     }
     if (d.hasAttribute('data-new-session')) return newSessionSheet();
     if (d.hasAttribute('data-new-wall')) return newWallSheet();
+    if (d.dataset.rephotoWall) return rephotoSheet(d.dataset.rephotoWall);
     if (d.dataset.tool) {
       T.tool = d.dataset.tool;
       return document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === T.tool));
     }
     if (d.dataset.delWall) {
       const name = $('#wallSel').selectedOptions[0].textContent;
-      const n = Number(d.dataset.nBoulders);
-      if (!confirm(`Eliminare la parete "${name}"${n ? ` e i suoi ${plural(n, 'blocco', 'blocchi')}` : ''}? Le salite già registrate restano nelle sessioni.`)) return;
+      if (!confirm(`Eliminare la parete "${name}" e tutte le sue vie? Le salite già registrate restano nelle sessioni.`)) return;
       await del('/walls/' + d.dataset.delWall);
       T.wallId = null; T.holds = []; toast('Parete eliminata'); return viewTracer();
+    }
+    if (d.dataset.newContest !== undefined) return openContestSheet();
+    if (d.dataset.editContest) return openContestSheet(d.dataset.editContest);
+    if (d.dataset.delContest) {
+      if (!confirm('Eliminare questa challenge?')) return;
+      await del('/contests/' + d.dataset.delContest);
+      toast('Challenge eliminata'); return viewContest();
     }
     if (!(d.dataset.delSession || d.dataset.delLog || d.dataset.delBoulder)) return;
     if (!confirm('Eliminare definitivamente?')) return;
@@ -372,7 +458,12 @@ document.addEventListener('submit', async e => {
       if (reg && el.password.value.length < 8) return fail('La password deve avere almeno 8 caratteri.');
       b.disabled = true;
       try {
-        const r = await send(reg ? '/auth/register' : '/auth/login', { name: reg ? el.name.value : undefined, email: el.email.value, password: el.password.value });
+        const r = await send(reg ? '/auth/register' : '/auth/login', {
+          name: reg ? el.name.value : undefined,
+          username: reg ? el.username.value : undefined,
+          email: el.email.value,
+          password: el.password.value,
+        });
         ME = r.user; return enter();
       } catch (x) {
         return fail(x instanceof TypeError ? 'Impossibile contattare il server. Controlla che Docker sia avviato.' : x.message);
@@ -393,7 +484,24 @@ document.addEventListener('submit', async e => {
     }
     if (f.matches('[data-wall]')) {
       const w = await api('/walls', { method: 'POST', body: new FormData(f) });
-      $('#dlg').close(); T.wallId = w.id; T.holds = []; toast('Foto caricata'); viewTracer();
+      $('#dlg').close(); T.wallId = w.id; T.holds = []; toast('Parete caricata'); viewTracer();
+    }
+    if (f.matches('[data-rephoto]')) {
+      const w = await api(`/walls/${f.dataset.rephoto}/rephoto`, { method: 'POST', body: new FormData(f) });
+      $('#dlg').close(); T.holds = []; toast('Foto parete aggiornata'); viewTracer();
+    }
+    if (f.matches('[data-contest]')) {
+      const body = {
+        title: el.title.value,
+        description: el.description.value,
+        reward: el.reward.value,
+        starts_at: el.starts_at.value || null,
+        ends_at: el.ends_at.value || null,
+        active: el.active ? el.active.checked : true,
+      };
+      if (f.dataset.contest) await put('/contests/' + f.dataset.contest, body);
+      else await send('/contests', body);
+      $('#dlg').close(); toast('Challenge salvata'); viewContest();
     }
   } catch (err) { toast(err.message); }
 });
@@ -405,11 +513,11 @@ document.addEventListener('change', async e => {
     if (T.photoUrl) URL.revokeObjectURL(T.photoUrl);
     T.photoUrl = URL.createObjectURL(T.photo); T.holds = []; return drawStage();
   }
-  if (t.name === 'boulder_id') {            // blocco tracciato → nome e grado arrivano dal blocco
+  if (t.name === 'boulder_id') {
     f.querySelector('[data-freename]').hidden = !!t.value;
     if (t.value) f.elements.grade.value = t.selectedOptions[0].dataset.grade;
   }
-  if (t.name === 'style') {                 // flash = sempre 1 tentativo
+  if (t.name === 'style') {
     f.elements.attempts.disabled = t.value === 'flash';
     if (t.value === 'flash') f.elements.attempts.value = 1;
   }
@@ -420,8 +528,10 @@ document.addEventListener('change', async e => {
 
 document.addEventListener('input', e => { if (e.target.id === 'vq') { VIE.q = e.target.value; renderVie(); } });
 
-const routes = { sessions: viewSessions, tracer: viewTracer, vie: viewVie, stats: viewStats, boulder: viewBoulder };
+/* ===================== ROUTER ===================== */
+const routes = { sessions: viewSessions, tracer: viewTracer, vie: viewVie, stats: viewStats, boulder: viewBoulder, contest: viewContest };
 async function route() {
+  if (!ME) return showAuth();
   const [name, arg] = (location.hash.slice(1) || 'sessions').split('/');
   const r = routes[name] ? name : 'sessions';
   if (r !== 'boulder') PREV = r;
@@ -430,7 +540,8 @@ async function route() {
   try { await routes[r](arg); } catch (err) { toast(err.message); }
 }
 window.addEventListener('hashchange', () => { window.scrollTo(0, 0); route(); });
-/* ===================== LOGIN / LOGOUT ===================== */
+
+/* ===================== LOGIN ===================== */
 function showAuth(mode = 'login') {
   const reg = mode === 'register' && META.registration;
   document.body.classList.add('out');
@@ -443,6 +554,7 @@ function showAuth(mode = 'login') {
     ${META.registration ? `<div class="seg mb-3"><button data-auth-mode="login" class="${reg ? '' : 'on'}">Accedi</button><button data-auth-mode="register" class="${reg ? 'on' : ''}">Registrati</button></div>` : ''}
     <form data-auth="${reg ? 'register' : 'login'}" class="card p-5 grid gap-3">
       ${reg ? '<input name="name" class="field" placeholder="Nome" required maxlength="60" autocomplete="name">' : ''}
+      ${reg ? '<input name="username" class="field" placeholder="Username (pubblico)" required maxlength="30" pattern="[a-z0-9_]{3,30}" autocomplete="username" title="3-30 caratteri: minuscole, numeri, _">' : ''}
       <input name="email" type="email" class="field" placeholder="Email" required autocomplete="email">
       <input name="password" type="password" class="field" placeholder="Password${reg ? ' (almeno 8 caratteri)' : ''}" required autocomplete="${reg ? 'new-password' : 'current-password'}">
       <p id="authErr" role="alert" class="text-sm text-center" style="color:var(--red)" hidden></p>
@@ -453,7 +565,9 @@ function showAuth(mode = 'login') {
 
 function enter() {
   document.body.classList.remove('out');
-  $('#userbox').hidden = false; $('#uname').textContent = ME.name;
+  $('#userbox').hidden = false;
+  const isAdm = !!ME.isAdmin;
+  $('#uname').innerHTML = `${esc(ME.name)} <span class="sub">· @${esc(ME.username || '')}</span>${isAdm ? ' <span class="badge-admin">admin</span>' : ''}`;
   return route();
 }
 
