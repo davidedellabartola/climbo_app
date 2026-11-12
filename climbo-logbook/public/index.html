@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#000000">
+<title>Climbo Pisa · Logbook</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<style>
+  :root {
+    --bg:#000; --card:#1c1c1e; --fill:#2c2c2e; --seg-on:#636366; --sep:rgba(255,255,255,.1);
+    --label:#f5f5f7; --sub:#8e8e93; --glass:rgba(28,28,30,.72);
+    --orange:#ff9f0a; --green:#30d158; --red:#ff453a; --blue:#0a84ff;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f2f2f7; --card:#fff; --fill:#f2f2f7; --seg-on:#fff; --sep:rgba(0,0,0,.1);
+      --label:#000; --sub:#6e6e73; --glass:rgba(249,249,249,.78); --orange:#ff9500; --green:#28a745; --red:#ff3b30; --blue:#007aff; }
+  }
+  * { -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }
+  body { margin:0; background:var(--bg); color:var(--label); -webkit-font-smoothing:antialiased;
+    font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text',Inter,system-ui,sans-serif; font-size:16px; letter-spacing:-.011em; }
+  .sub { color:var(--sub); }
+  .title { font-size:34px; font-weight:700; letter-spacing:-.035em; line-height:1.1; }
+  .glass { background:var(--glass); -webkit-backdrop-filter:saturate(180%) blur(22px); backdrop-filter:saturate(180%) blur(22px); }
+  .card { background:var(--card); border-radius:22px; }
+  .sep { border-top:.5px solid var(--sep); }
+  .field { width:100%; background:var(--fill); color:var(--label); border:0; border-radius:12px; padding:13px 14px; font:inherit; -webkit-appearance:none; appearance:none; }
+  .field::placeholder { color:var(--sub); }
+  .field:focus { outline:2px solid var(--orange); }
+  .field:disabled { opacity:.45; }
+  select.field { padding-right:36px; background-repeat:no-repeat; background-position:right 14px center; background-size:12px;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%238e8e93' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+  .btn { background:var(--orange); color:#000; font:inherit; font-weight:600; border:0; border-radius:9999px; padding:13px 22px; cursor:pointer; transition:transform .15s, opacity .15s; }
+  .btn:active { transform:scale(.97); opacity:.85; }
+  .btn.sm { padding:8px 16px; font-size:15px; }
+  .btn.sec { background:var(--fill); color:var(--label); }
+  .link { color:var(--orange); background:none; border:0; font:inherit; font-weight:500; cursor:pointer; text-decoration:none; padding:0; }
+  .icon { background:none; border:0; color:var(--sub); cursor:pointer; padding:6px; border-radius:9999px; }
+  .icon:hover { color:var(--red); }
+  :focus-visible { outline:2px solid var(--orange); outline-offset:2px; }
+  .grade { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-width:58px; height:32px; padding:0 10px; border-radius:10px; background:var(--fill); font-weight:700; font-size:15px; white-space:nowrap; }
+  .grade i { width:12px; height:12px; border-radius:9999px; box-shadow:inset 0 0 0 1px rgba(128,128,128,.35); }
+  .chip { font-size:12px; font-weight:600; padding:2px 9px; border-radius:9999px; }
+  .chip.flash { color:var(--green); background:color-mix(in srgb, var(--green) 16%, transparent); }
+  .chip.top { color:var(--orange); background:color-mix(in srgb, var(--orange) 16%, transparent); }
+  .chip.fail { color:var(--sub); background:var(--fill); }
+  .seg { display:flex; background:var(--fill); border-radius:12px; padding:3px; gap:2px; }
+  .seg button { flex:1; border:0; background:none; color:var(--label); font:inherit; font-size:14px; font-weight:500; padding:8px 6px; border-radius:9px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:7px; transition:background .2s; }
+  .seg button.on { background:var(--seg-on); box-shadow:0 1px 3px rgba(0,0,0,.25); }
+  .seg i { width:11px; height:11px; border-radius:9999px; }
+  #stage { touch-action:manipulation; user-select:none; -webkit-user-select:none; cursor:crosshair; }
+  .marker { position:absolute; width:7%; min-width:10px; aspect-ratio:1; border:3px solid; border-radius:9999px; transform:translate(-50%,-50%); box-shadow:0 0 0 1.5px rgba(0,0,0,.45), 0 2px 8px rgba(0,0,0,.4); }
+  #stage .marker { min-width:26px; cursor:pointer; }
+  .thumb .marker { border-width:2px; pointer-events:none; }
+  .view .marker { min-width:22px; pointer-events:none; }
+  details > summary { list-style:none; cursor:pointer; }
+  details > summary::-webkit-details-marker { display:none; }
+  dialog { background:var(--card); color:var(--label); border:0; border-radius:26px; padding:22px; width:min(92vw,420px); }
+  dialog::backdrop { background:rgba(0,0,0,.45); -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px); }
+  body.out nav, body.out #userbox { display:none !important; }
+  .tab { display:flex; flex-direction:column; align-items:center; gap:2px; font-size:10.5px; font-weight:500; color:var(--sub); text-decoration:none; padding:8px 0 6px; }
+  .tab.active, .toplink.active { color:var(--orange); }
+  .toplink { color:var(--sub); text-decoration:none; font-weight:500; font-size:15px; padding:6px 14px; border-radius:9999px; }
+  .toplink.active { background:var(--fill); }
+  @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
+</style>
+</head>
+<body style="padding-bottom:calc(76px + env(safe-area-inset-bottom))" class="md:!pb-0">
+<header class="glass sticky top-0 z-20 border-b" style="border-color:var(--sep);padding-top:env(safe-area-inset-top)">
+  <div class="max-w-5xl mx-auto px-5 h-12 flex items-center justify-between">
+    <a href="#sessions" class="flex items-center gap-2 font-semibold" style="color:var(--label);text-decoration:none">
+      <span class="inline-block w-3.5 h-3.5 rounded-full" style="background:var(--orange)"></span>Climbo Pisa</a>
+    <nav class="hidden md:flex gap-1">
+      <a class="toplink" data-r="sessions" href="#sessions">Sessioni</a>
+      <a class="toplink" data-r="tracer" href="#tracer">Traccia</a>
+      <a class="toplink" data-r="vie" href="#vie">Le tue vie</a>
+      <a class="toplink" data-r="stats" href="#stats">Statistiche</a>
+    </nav>
+    <div id="userbox" class="flex items-center gap-3 text-sm" hidden>
+      <span id="uname" class="sub hidden sm:inline truncate max-w-[160px]"></span>
+      <button class="btn sec sm" data-logout>Esci</button>
+    </div>
+  </div>
+</header>
+<main id="app" class="max-w-5xl mx-auto px-5 pt-6 pb-10" aria-live="polite"></main>
+<nav class="glass md:hidden fixed bottom-0 inset-x-0 z-20 grid grid-cols-4 border-t" style="border-color:var(--sep);padding-bottom:env(safe-area-inset-bottom)">
+  <a class="tab" data-r="sessions" href="#sessions"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4M16 2v4M3 9h18M5 4h14a2 2 0 012 2v13a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z"/></svg>Sessioni</a>
+  <a class="tab" data-r="tracer" href="#tracer"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>Traccia</a>
+  <a class="tab" data-r="vie" href="#vie"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20l6-11 4 7 3-4 5 8z"/></svg>Le tue vie</a>
+  <a class="tab" data-r="stats" href="#stats"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>Statistiche</a>
+</nav>
+<dialog id="dlg"></dialog>
+<div id="toast" hidden class="fixed left-1/2 -translate-x-1/2 z-40 glass rounded-full px-5 py-2.5 text-sm font-medium shadow-xl" style="top:calc(60px + env(safe-area-inset-top))"></div>
+<script src="/app.js"></script>
+</body>
+</html>
